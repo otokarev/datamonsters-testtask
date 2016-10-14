@@ -10,7 +10,6 @@ class Session(players: ListBuffer[ActorRef]) extends Actor with ActorLogging {
 
   val trigger = " "
   val correct = "3"
-  var stop = false
 
   log.info("Session starts with players: {}", players)
 
@@ -73,7 +72,8 @@ class Session(players: ListBuffer[ActorRef]) extends Actor with ActorLogging {
     val diceFaces = List("1", "2", "3")
     val diceFace = diceFaces(r.nextInt(diceFaces.size))
 
-    context.system.scheduler.scheduleOnce(interval milliseconds, self, Tick(diceFace))
+    if (t.msg != correct)
+      context.system.scheduler.scheduleOnce(interval milliseconds, self, Tick(diceFace))
 
     t.msg
   }
