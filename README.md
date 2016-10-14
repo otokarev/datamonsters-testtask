@@ -18,15 +18,16 @@ telnet localhost 6600
 Type SPACE and ENTER when see "3"
 
 
-##Requirements/User stories
-Game name: "The War: Latency", technologies: Scala/Akka.
+##Requirements
+Use Scala/Akka.
 
-1. Player 1 connects game server by use of telnet.
-1.1. It's assumed that players terminal uses UTF-8 encoding
-1. After the connection is established the game greets the player 1 by message "Привет! Попробую найти тебе противника"
+##User stories
+1. Player connects game server by use of telnet.
+1.1. It's assumed that player's terminal uses UTF-8 encoding
+1. After the connection is established the game greets the player with message "Привет! Попробую найти тебе противника"
 1.1. hereinafter all messages is ended by "\n"
-1. The server chooses any player (Player 2) among already connected players waiting for a peer competitor
-1. After the peer found the server notifies Player 1 and Player 2 by message "Противник найден. Нажмите пробел, когда увидите цифру 3"
+1. The server chooses other player among already connected players waiting for a peer competitor
+1. After the peer found the server notifies both players by the message "Противник найден. Нажмите пробел, когда увидите цифру 3"
 1. In randomized interval (2sec < T < 4sec) the server sends messages "1", "2" or "3" in random order to players
 1. After "3" is sent, the game waits till one of the player sends space symbol.
 1. The first player who sent a space symbol is a winner. 
