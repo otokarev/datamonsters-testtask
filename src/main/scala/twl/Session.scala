@@ -26,7 +26,7 @@ class Session(players: ListBuffer[ActorRef]) extends Actor with ActorLogging {
       log.debug("New value set: '{}'", current)
       players.foreach {_ ! t}
 
-    case Tock(ref, msg) if msg == trigger =>
+    case Tock(msg) if msg == trigger =>
       log.debug("current value: '{}'; player sent: '{}'", current, msg)
       players foreach  {
         case r if current == correct && r == sender() => r ! Winner
@@ -36,7 +36,7 @@ class Session(players: ListBuffer[ActorRef]) extends Actor with ActorLogging {
       }
       context stop self
 
-    case Tock(ref, msg) =>
+    case Tock(msg) =>
       log.debug("Wrong trigger received")
 
     case Terminated(ref) =>
@@ -82,7 +82,7 @@ class Session(players: ListBuffer[ActorRef]) extends Actor with ActorLogging {
 object Session {
   case object SessionCreated
   case class Tick(msg: String)
-  case class Tock(ref: ActorRef, msg: String)
+  case class Tock(msg: String)
   case object Winner
   case object Slowpock
   case object Bustler

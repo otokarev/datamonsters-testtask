@@ -41,8 +41,8 @@ Use Scala/Akka.
 
 ##Assumption
 1. Message from a player perspective is a number of symbols ended by newline character, so to send SPACE a player must type SPACE and ENTER from newline
-2. The game ignores any strings except SPACE (" ")
+1. The game ignores any strings except SPACE (" ")
 
 ##TODO
-1. A value seen by player can differ one he types in the console
-1. Get rid of "\n" hardcoded
+1. Actors have internal states that is not good. Fix it.
+1. Tests

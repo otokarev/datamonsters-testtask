@@ -22,7 +22,7 @@ class ConnectionHandler(connection: ActorRef) extends Actor with ActorLogging {
     case Received(data) =>
       val recv = data.utf8String.stripLineEnd
       log.debug("received from customer: '{}'", recv)
-      session.foreach(_ ! Tock(self, recv))
+      session.foreach(_ ! Tock(recv))
 
     case Tick(msg) =>
       connection ! Write(ByteString(msg+"\n"))
