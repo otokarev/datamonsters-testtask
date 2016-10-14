@@ -3,41 +3,64 @@ package twl
 import akka.actor.{Actor, ActorLogging, ActorRef, Terminated}
 import akka.event.LoggingReceive
 
-class Session(players: Seq[ActorRef]) extends Actor with ActorLogging {
+import scala.collection.mutable.ListBuffer
+
+class Session(players: ListBuffer[ActorRef]) extends Actor with ActorLogging {
   import twl.Session._
 
-  val correctValue = "3"
+  val trigger = " "
+  val correct = "3"
+  var stop = false
+
+  log.info("Session starts with players: {}", players)
 
   players.foreach {a =>
     a ! SessionCreated
     context.watch(a)
   }
 
-  var currentValue = scheduleTick
+  var current = reschedule(Tick(""))
 
   def receive = LoggingReceive {
     case t @ Tick(msg) =>
+      current = reschedule(t)
+      log.debug("New value set: '{}'", current)
       players.foreach {_ ! t}
-      currentValue = scheduleTick
-    case t @ Tock(ref, msg) if msg == " " =>
-      log.debug("current value: '{}'; player sent: '{}'", currentValue, msg)
+
+    case Tock(ref, msg) if msg == trigger =>
+      log.debug("current value: '{}'; player sent: '{}'", current, msg)
       players foreach  {
-        case r if correctValue == currentValue && r == sender() => r ! Winner
-        case r if correctValue == currentValue => r ! Slowpock
-        case r if correctValue != currentValue && r == sender() => r ! Bustler
-        case r if correctValue != currentValue => r ! Lucky
+        case r if current == correct && r == sender() => r ! Winner
+        case r if current == correct => r ! Slowpock
+        case r if current != correct && r == sender() => r ! Bustler
+        case r if current != correct => r ! Lucky
       }
       context stop self
 
-    case Terminated =>
-      // if either player exited notify others and quit gracefully
-      players.filter(sender() != _).foreach(_ ! PlayerExited)
-      context stop self
+    case Tock(ref, msg) =>
+      log.debug("Wrong trigger received")
 
-    case _ =>
+    case Terminated(ref) =>
+      handleTerminated(ref)
+
   }
 
-  def scheduleTick: String = {
+  def handleTerminated(ref: ActorRef) = {
+    context.unwatch(ref)
+    // Deregister player
+    players -= ref
+    log.info("Player {} deregistered from the session", ref)
+    // Notify others players that their competitor exited
+    players.foreach(_ ! PlayerExited)
+
+    // Close session if no registered player left
+    if (players.isEmpty) {
+      log.info("Session closed")
+      context stop self
+    }
+  }
+
+  def reschedule(t: Tick) = {
     import context.dispatcher
 
     import scala.concurrent.duration._
@@ -49,9 +72,10 @@ class Session(players: Seq[ActorRef]) extends Actor with ActorLogging {
     val interval = minInterval + r.nextInt(maxDelta)
     val diceFaces = List("1", "2", "3")
     val diceFace = diceFaces(r.nextInt(diceFaces.size))
+
     context.system.scheduler.scheduleOnce(interval milliseconds, self, Tick(diceFace))
 
-    diceFace
+    t.msg
   }
 }
 

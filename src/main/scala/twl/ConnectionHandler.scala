@@ -11,14 +11,19 @@ class ConnectionHandler(connection: ActorRef) extends Actor with ActorLogging {
 
   var session: Option[ActorRef] = None
 
+  log.info("Connection handler starts successfully")
+
   def receive = LoggingReceive {
     case SessionCreated =>
       session = Some(sender())
       connection ! Write(ByteString("Противник найден. Нажмите пробел, когда увидите цифру 3\n"))
+      log.info("Connection handler joins session successfully")
+
     case Received(data) =>
-      val recv = data.utf8String.stripSuffix("\n")
+      val recv = data.utf8String.stripLineEnd
       log.debug("received from customer: '{}'", recv)
       session.foreach(_ ! Tock(self, recv))
+
     case Tick(msg) =>
       connection ! Write(ByteString(msg+"\n"))
 
@@ -34,11 +39,15 @@ class ConnectionHandler(connection: ActorRef) extends Actor with ActorLogging {
     case Lucky =>
       connection ! Write(ByteString("Ваш противник поспешил и вы выйграли\n"))
       context stop self
+
     case PlayerExited =>
       connection ! Write(ByteString("Ваш соперник покинул игру\n"))
+      log.warning("Competitor exited unexpectedly. Exit now.")
       context stop self
 
-    case PeerClosed => context stop self
+    case PeerClosed =>
+      log.warning("Connection closed unexpectedly. Exit now.")
+      context stop self
 
   }
 }

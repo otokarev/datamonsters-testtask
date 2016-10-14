@@ -16,12 +16,13 @@ class SessionManager extends Actor with ActorLogging {
 
   def receive = LoggingReceive {
     case RegisterPlayer(ref) =>
-      log.debug("waiting list was: {}", waiting)
       waiting += ref
-      log.debug("waiting list become: {}", waiting)
+      log.info("New player joined the game: {}", ref)
 
       waiting.grouped(maxPlayerNumber).toList.foreach {
-        case a if a.size == maxPlayerNumber => context.actorOf(Props(classOf[Session], a), "session_" + UUID.randomUUID())
+        case a if a.size == maxPlayerNumber =>
+          context.actorOf(Props(classOf[Session], a), "session_" + UUID.randomUUID())
+          log.info("Starting new session with players: {}", a)
         case a => waiting = a
       }
   }
