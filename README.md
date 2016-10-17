@@ -3,16 +3,28 @@
 ## Usage
 ### Start game server
 ```
-sbt run
+# variant with pure Akka Actors
+sbt actors/run
+
+# variant with Akka Streams 
+sbt streams/run
 ```
 ### Connect game server
 First player
 ```
+# variant with pure Akka Actors
 telnet localhost 6600
+
+# variant with Akka Streams 
+stty -icanon && netcat 127.0.0.1 6600
 ```
 and second one
 ```
+# variant with pure Akka Actors
 telnet localhost 6600
+
+# variant with Akka Streams 
+stty -icanon && netcat 127.0.0.1 6600
 ```
 
 Type SPACE and ENTER when see "3"

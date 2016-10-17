@@ -65,12 +65,11 @@ class Session(players: ListBuffer[ActorRef]) extends Actor with ActorLogging {
     import scala.concurrent.duration._
     import scala.util.Random
 
-    val r = Random
     val minInterval = 2000
     val maxDelta = 2000
-    val interval = minInterval + r.nextInt(maxDelta)
-    val diceFaces = List("1", "2", "3")
-    val diceFace = diceFaces(r.nextInt(diceFaces.size))
+    val interval = minInterval + Random.nextInt(maxDelta)
+    val diceFacesNum = 3
+    val diceFace = (Random.nextInt(diceFacesNum) + 1).toString
 
     if (t.msg != correct)
       context.system.scheduler.scheduleOnce(interval milliseconds, self, Tick(diceFace))
