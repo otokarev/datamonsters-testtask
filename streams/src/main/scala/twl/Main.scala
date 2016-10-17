@@ -23,13 +23,18 @@ object Main extends App {
   val sessionManager = sessionManagerActor
 
   def dialogSink = Sink.foreach[IncomingConnection] { connection =>
-    println(s"New connection from: ${connection.remoteAddress}")
+    system.log.debug(s"New connection from: ${connection.remoteAddress}")
 
     val play =  Source.actorRef[String](10, OverflowStrategy.fail)
-
-    val ref = Flow[String].to(Sink.foreach(println)).runWith(play)
-
-    sessionManager.tell("register", ref)
+      .mapMaterializedValue(
+        /*
+         * Register play source in SessionManager
+         *
+         * After a second player been found SessionManager will create a session for a new game
+         * and that session starts sending numbers to the play source actor
+         */
+        ref => sessionManager.tell("register", ref)
+      )
 
     val echo = Flow[ByteString]
       .map(_.utf8String)
@@ -38,16 +43,6 @@ object Main extends App {
       .map(ByteString(_))
 
     connection.handleWith(echo)
-
-//    val materialized = RunnableGraph.fromGraph(GraphDSL.create() { implicit b =>
-//      import GraphDSL.Implicits._
-//
-//      val merge = b.add(Merge[String](2))
-//      echo ~> merge
-////      play.out ~> merge ~> transform.out
-//      ClosedShape
-//    })
-
   }
 
   connections.toMat(dialogSink)(Keep.right).run()
@@ -101,55 +96,4 @@ object Main extends App {
       Random.nextInt(2000) + 2000 milliseconds, self, Random.nextInt(3)+1
     )
   })
-
-  /*
-    def connectionsToSessionsSink = Sink.foreach[IncomingConnection] { connection =>
-      println("Registering session manager..")
-
-      val playground = Flow[ByteString].merge(Source.single(ByteString("Противник найден. Нажмите пробел, когда увидите цифру 3\n")))
-
-      connection.handleWith(playground)
-    }
-    def connectionsToSessionsSink: Sink[IncomingConnection, NotUsed] = {
-      println("Registering session manager..")
-      val session = Flow[IncomingConnection].async.grouped(2).async.map {players => {
-        val playground = generatePlaygroundFlow
-        println("New session created")
-
-        println(players.size)
-        players foreach {player =>
-          println("Handle with")
-          player.handleWith(playground)
-          println("Handle with2")
-        }
-        println("Handle with3")
-      }}
-
-      session.to(Sink.ignore)
-    }
-
-  def generatePlaygroundFlow: Flow[ByteString, ByteString, NotUsed] = {
-    /**
-      * Generate playground
-      *
-      * (The approach below breaks all Akka Streams concepts
-      * but hardly possible that generated list will have infinite size)
-      */
-    var v = ""
-    var playgroundSkeleton = ListBuffer[(String, FiniteDuration)]()
-    while (v != "3") {
-      v = (Random.nextInt(3) + 1).toString
-      playgroundSkeleton += Tuple2(v, (2000 + Random.nextInt(2000)).milliseconds)
-    }
-
-    var offset = 0
-    var playground = Flow[ByteString].merge(Source.single(ByteString("Противник найден. Нажмите пробел, когда увидите цифру 3\n")))
-    playgroundSkeleton foreach { a =>
-      playground = playground.merge(Source.single(ByteString(a._1)).delay(a._2))
-    }
-
-    println("New playground generated")
-    playground
-  }
-    */
 }
