@@ -11,14 +11,12 @@ import akka.util.ByteString
 import scala.collection.mutable
 import scala.concurrent.Future
 import scala.concurrent.duration._
+import scala.language.postfixOps
 import scala.util.{Failure, Random, Success}
 
 object Main extends App {
-
   implicit val system: ActorSystem = ActorSystem("datamonsters-testtaks-stream")
   implicit val materializer = ActorMaterializer()
-
-//  val sessionManager = sessionManagerActor
 
   startServer("127.0.0.1", 6600)
 
@@ -28,7 +26,9 @@ object Main extends App {
     val connections: Source[IncomingConnection, Future[ServerBinding]] =
       Tcp().bind(address, port)
 
-    val binding = connections.to(connectionsSink).run()
+    // TODO: create SessionManager source with ref to it
+
+    val binding = connections.to(connectionsSink/*TODO: here must be ref to SessionManager*/).run()
 
     binding onComplete {
       case Success(b) ⇒
@@ -41,50 +41,56 @@ object Main extends App {
   def connectionsSink(implicit system: ActorSystem, materializer: Materializer) = Sink.foreach[IncomingConnection] { connection =>
     system.log.debug(s"New connection from: ${connection.remoteAddress}")
 
-    connection.handleWith(serverLogic(connection))
+    connection.handleWith(connectionHandler(connection/*TODO: ref to SessionManager*/))
   }
 
-  def serverLogic (conn: Tcp.IncomingConnection)(implicit system: ActorSystem, materializer: Materializer): Flow[ByteString, ByteString, NotUsed]
-  = Flow.fromGraph(GraphDSL.create() { implicit b ⇒
+  def connectionHandler(connection: IncomingConnection) = {
+    /* TODO: request new session here from SessionManager
+     * The session will contain source ref of broadcast hub of gameEngineSource
+     */
+    play(connection)
+  }
+
+  def play(connection: IncomingConnection) = Flow.fromGraph(GraphDSL.create() {implicit b =>
     import GraphDSL.Implicits._
 
-    val welcome = Source.single(ByteString("Привет! Попробую найти тебе противника.\n"))
-
-    val playgroundSourceGraph = new PlaygroundSourceGraph
-
-    val playgroundSource = Source.fromGraph(playgroundSourceGraph)
-    val playFlowForConsole = Flow[String]
-    val playFlowForChecker = Flow[String]
-
-    //val checkPlayerInputFlow = new CheckPlayerInputFlow(Source.empty[String].via(playFlowForChecker))
-    //val checkPlayerInputFlow = new CheckPlayerInputFlow(playgroundSource)
-
-    val logic = b.add(Flow[ByteString]
+    val preprocess = b.add(Flow[ByteString]
       .map(_.utf8String)
       .map { msg ⇒ system.log.debug(s"Server received: $msg"); msg }
-      //.via(checkPlayerInputFlow)
-      .merge(playgroundSource)
-      .map(ByteString(_)))
+      .merge(gameEngineSource).named("source"))
+    val postprocess = b.add(Flow[String].map(ByteString(_)))
 
-    val concat = b.add(Concat[ByteString]())
+    val feedback = Flow[String].via(helloFlow).named("feedback")
+    val process = Flow[String].via(new CheckPlayerInputFlow(gameEngineSource)).named("processing")
 
-    /*
-     * WHY IT STOPS WORKING WHEN I UNCOMMENT NEXT LINE???
-     */
-    //val bcastPlaySource = b.add(Broadcast[String](2))
-    ////playgroundSource ~> bcastPlaySource ~> playFlowForChecker
-    //playgroundSource ~> bcastPlaySource ~> Sink.ignore
-    ////                    bcastPlaySource.out(1) ~> playFlowForConsole
-    //                    bcastPlaySource ~> Sink.ignore
+    val bcast = b.add(Broadcast[String](2))
+    val merge = b.add(Merge[String](2))
 
-    welcome ~> concat.in(0)
-    logic.outlet ~> concat.in(1)
+    preprocess ~> bcast ~> feedback ~> merge ~> postprocess
+                            bcast ~> process ~> merge
 
-    FlowShape(logic.in, concat.out)
+    FlowShape(preprocess.in, postprocess.out)
   })
 
-  class PlaygroundSourceGraph extends GraphStage[SourceShape[String]] {
-    val out: Outlet[String] = Outlet("PlaygroundSourceGraph.out")
+  def gameEngineSource: Source[String, NotUsed] = Source.fromGraph(new GameEngineSourceGraph).named("game-engine")
+
+  def checkPlayerInputFlow(playgroundSource: Source[String, NotUsed]): Graph[FlowShape[String, String], NotUsed]
+  = new CheckPlayerInputFlow(playgroundSource).named("players-input-checker")
+
+  def helloFlow = Flow.fromGraph(GraphDSL.create() {implicit b =>
+    import GraphDSL.Implicits._
+
+    val hello = Source.single("Привет! Попробую найти тебе противника.\n")
+
+    val concat = b.add(Concat[String]())
+
+    concat.in(0) <~ hello
+
+    FlowShape(concat.in(1), concat.out)
+  }).named("hello")
+
+  class GameEngineSourceGraph extends GraphStage[SourceShape[String]] {
+    val out: Outlet[String] = Outlet("GameEngineSourceGraph.out")
 
     override val shape: SourceShape[String] = SourceShape(out)
 
@@ -93,7 +99,7 @@ object Main extends App {
       var downstreamWaiting = false
 
       override def preStart(): Unit = {
-        reschedule
+        reschedule()
       }
 
       setHandler(out, new OutHandler {
@@ -116,9 +122,9 @@ object Main extends App {
           push(out, v)
           if (v == "3") completeStage()
         }
-        reschedule
+        reschedule()
       }
-      def reschedule = {
+      def reschedule() =  {
         scheduleOnce(None, 2000 + Random.nextInt(2000) milliseconds)
         system.log.debug(s"${this.getClass.getSimpleName}: rescheduled")
       }
@@ -165,91 +171,4 @@ object Main extends App {
       })
     }
   }
-
-//  def sessionManagerActor = actor(new Act with ActorLogging {
-//    val maxPlayerNumber = 2
-//
-//    var waiting = ListBuffer[ActorRef]()
-//
-//    log.debug("SessionManager instantiated")
-//
-//    become {
-//      case "register" =>
-//        log.debug("new player registered in the game: `{}`", sender())
-//        waiting += sender()
-//
-//        waiting.grouped(maxPlayerNumber).toList.filter(_.size == maxPlayerNumber).foreach {
-//          a =>
-//            waiting --= a
-//            log.debug("new session is starting")
-//            sessionActor(a)
-//        }
-//      case a =>
-//        log.debug("wrong message received: {}", a)
-//    }
-//  })
-//
-//  def sessionActor(sources: Seq[ActorRef]) = actor(new Act with ActorLogging {
-//
-//    import context.dispatcher
-//
-//    log.debug("Session instantiated")
-//
-//    reschedule
-//
-//    sources.foreach(_ ! "Противник найден. Нажмите пробел, когда увидите цифру 3\n")
-//
-//    var current = 0.toString
-//    become({
-//      case i: Int =>
-//        if (i < 3) {
-//          reschedule
-//        }
-//        current = i.toString
-//        sources.foreach { a =>
-//          a ! current
-//          log.debug("`{}` sent to `{}`", current, a)
-//        }
-//      case ' ' =>
-//        if (current == 3.toString) {
-//          sources.foreach {
-//            case a if a == sender() => a ! "Вы нажали пробел первым и победили\n"
-//            case a => a ! "Вы не успели и проиграли\n"
-//          }
-//        } else {
-//          sources.foreach {
-//            case a if a == sender() => a ! "Вы поспешили и проиграли\n"
-//            case a => a ! "Ваш противник поспешил и вы выйграли\n"
-//          }
-//        }
-//      case a =>
-//        log.debug("wrong message received: {}", a)
-//    })
-//    def reschedule = context.system.scheduler.scheduleOnce(
-//      Random.nextInt(2000) + 2000 milliseconds, self, Random.nextInt(3)+1
-//    )
-//  })
-//
-//  def connectionsSink2 = Sink.foreach[IncomingConnection] { connection =>
-//    system.log.debug(s"New connection from: ${connection.remoteAddress}")
-//
-//    val play =  Source.actorRef[String](10, OverflowStrategy.fail)
-//      .mapMaterializedValue(
-//        /*
-//         * Register play source in the session manager
-//         *
-//         * After a second player been found the session manager will create a session for a new game
-//         * and that session starts sending numbers to the play source actor
-//         */
-//        ref => sessionManager.tell("register", ref)
-//      )
-//
-//    val echo = Flow[ByteString]
-//      .map(_.utf8String)
-//      .merge(Source.single("Привет! Попробую найти тебе противника.\n"))
-//      .merge(play)
-//      .map(ByteString(_))
-//
-//    connection.handleWith(echo)
-//  }
 }
