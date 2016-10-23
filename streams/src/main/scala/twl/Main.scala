@@ -28,7 +28,7 @@ object Main extends App {
 
     // TODO: create SessionManager source with ref to it
 
-    val binding = connections.to(connectionsSink/*TODO: here must be ref to SessionManager*/).run()
+    val binding = connections.to(sessionManager).run()
 
     binding onComplete {
       case Success(b) ⇒
@@ -38,30 +38,49 @@ object Main extends App {
     }
   }
 
-  def connectionsSink(implicit system: ActorSystem, materializer: Materializer) = Sink.foreach[IncomingConnection] { connection =>
-    system.log.debug(s"New connection from: ${connection.remoteAddress}")
+//  def connectionsSink(implicit system: ActorSystem, materializer: Materializer) = Sink.foreach[IncomingConnection] { connection =>
+//    system.log.debug(s"New connection from: ${connection.remoteAddress}")
+//
+//
+//
+//    connection.handleWith(connectionHandler(connection/*TODO: ref to SessionManager*/))
+//  }
 
-    connection.handleWith(connectionHandler(connection/*TODO: ref to SessionManager*/))
-  }
+  def sessionManager(implicit system: ActorSystem, materializer: Materializer)
+  = Flow[IncomingConnection]
+    .grouped(2 /*New session starts when at least two players connect to the game*/)
+    .map(a => {
 
-  def connectionHandler(connection: IncomingConnection) = {
-    /* TODO: request new session here from SessionManager
-     * The session will contain source ref of broadcast hub of gameEngineSource
-     */
-    play(connection)
-  }
+      // Create a new game source for this new session
+      val game = Source.single("Противник найден. Нажмите пробел, когда увидите цифру 3\n")
+        .concat(gameEngineSource).toMat(BroadcastHub.sink(16))(Keep.right).run()
 
-  def play(connection: IncomingConnection) = Flow.fromGraph(GraphDSL.create() {implicit b =>
+      system.log.debug("A new session created")
+
+      a.foreach(connection =>
+        connection.handleWith(play(connection, game))
+      )
+
+    }).to(Sink.ignore).named("session-manager")
+
+//  def connectionHandler(connection: IncomingConnection, game: Source[String, NotUsed]) = {
+//    /* TODO: request new session here from SessionManager
+//     * The session will contain source ref of broadcast hub of gameEngineSource
+//     */
+//    play(connection, game)
+//  }
+
+  def play(connection: IncomingConnection, game: Source[String, NotUsed]) = Flow.fromGraph(GraphDSL.create() {implicit b =>
     import GraphDSL.Implicits._
 
     val preprocess = b.add(Flow[ByteString]
       .map(_.utf8String)
       .map { msg ⇒ system.log.debug(s"Server received: $msg"); msg }
-      .merge(gameEngineSource).named("source"))
+      .merge(game))
     val postprocess = b.add(Flow[String].map(ByteString(_)))
 
     val feedback = Flow[String].via(helloFlow).named("feedback")
-    val process = Flow[String].via(new CheckPlayerInputFlow(gameEngineSource)).named("processing")
+    val process = Flow[String].via(new CheckPlayerInputFlow(game)).named("processing")
 
     val bcast = b.add(Broadcast[String](2))
     val merge = b.add(Merge[String](2))
