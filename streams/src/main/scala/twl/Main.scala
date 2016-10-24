@@ -11,12 +11,12 @@ import scala.language.postfixOps
 import scala.util.{Failure, Success}
 
 object Main extends App {
-  implicit val system: ActorSystem = ActorSystem("datamonsters-testtaks-stream")
-  implicit val materializer = ActorMaterializer()
-
   startServer("127.0.0.1", 6600)
 
-  def startServer(address: String, port: Int)(implicit system: ActorSystem, materializer: Materializer) = {
+  def startServer(address: String, port: Int) = {
+    implicit val system: ActorSystem = ActorSystem("datamonsters-testtaks-stream")
+    implicit val materializer = ActorMaterializer()
+
     import system.dispatcher
 
     val connections: Source[IncomingConnection, Future[ServerBinding]] =
@@ -35,29 +35,53 @@ object Main extends App {
   def sessionManager(implicit system: ActorSystem, materializer: Materializer)
   = Flow[IncomingConnection]
     .map(connection => {
-      import player._
+      import player.{Contract, _}
 
-      val (sink, source) = pubSub()
+      val contract = Contract(
+        connection = connection,
+        gamePorts = pubSub(),
+        controlPorts = pubSub(),
+        signalPorts = pubSub()
+      )
+      connection.handleWith(play(contract))
 
-      connection.handleWith(play(connection, source))
-
-      sink
+      contract
     })
     .grouped(2 /*New session starts when at least two players connect to the game*/)
-    .map(sinks => {
+    .map(contracts => {
+      import session._
       import twl.game._
 
-      val (sink, source) = pubSub()
 
       val game = gameSource()
 
-      val gameGraph = Source.single("Противник найден. Нажмите пробел, когда увидите цифру 3\n")
-        .concat(game).named("play-source").to(sink).run()
+      val (playSink, playSource) = pubSub[String]()
 
-      sinks.foreach {sink =>
-        source.to(sink).run()
+      Source.single("Противник найден. Нажмите пробел, когда увидите цифру 3\n")
+        .concat(game).named("play-source").to(playSink).run()
+
+
+      contracts.foreach {contract =>
+        playSource.to(contract.gameSink).run()
+        Source.single("").merge(contract.playerOut).expand(Iterator.continually(_)).zip(playSource).map {a =>
+          system.log.debug("Player input: `{}`; Current value: `{}`", a._1, a._2)
+          a
+        } map {
+          case (Gocha(c), "3") =>
+            Source.single(SIG_YOU_WIN).to(c.playerIn).run()
+            contracts.filter(_ != c).foreach(c =>
+              Source.single(SIG_YOU_LOOSE).to(c.playerIn).run()
+            )
+          case (Gocha(c), _) =>
+            Source.single(SIG_YOU_BUSTLER).to(c.playerIn).run()
+            contracts.filter(_ != c).foreach(c =>
+              Source.single(SIG_PEER_BUSTLER).to(c.playerIn).run()
+            )
+        } to Sink.ignore
       }
+
     }).to(Sink.ignore).named("session-manager")
+
 }
 
 

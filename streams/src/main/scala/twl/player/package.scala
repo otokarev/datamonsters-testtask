@@ -1,8 +1,6 @@
 package twl
 
-import akka.NotUsed
 import akka.actor.ActorSystem
-import akka.stream.scaladsl.Tcp.IncomingConnection
 import akka.stream.scaladsl.{Broadcast, Concat, Flow, GraphDSL, Merge, Source}
 import akka.stream.{FlowShape, Materializer}
 import akka.util.ByteString
@@ -10,22 +8,37 @@ import akka.util.ByteString
 
 package object player {
 
-  def play(
-            connection: IncomingConnection,
-            game: Source[String, NotUsed]
-          )(implicit system: ActorSystem, materializer: Materializer) = Flow.fromGraph(GraphDSL.create() { implicit b =>
+  def play(contract: Contract)(implicit system: ActorSystem, materializer: Materializer) = Flow.fromGraph(GraphDSL.create() { implicit b =>
     import GraphDSL.Implicits._
+    import session._
 
     // TODO: here we should shutdown the session and unlink session members connections
 
     val preprocess = b.add(Flow[ByteString]
       .map(_.utf8String)
       .map { msg ⇒ system.log.debug(s"Server received: $msg"); msg }
-      .merge(game))
+      .merge(contract.gameSource))
+
+
+    val sessionFeedback = contract.sessionOut.map {
+      case SIG_PEER_GONE => "Ваш соперник покинул игру\n"
+      case SIG_YOU_WIN => "Вы нажали пробел первым и победили\n"
+      case SIG_YOU_LOOSE => "Вы не успели и проиграли\n"
+      case SIG_PEER_BUSTLER => "Ваш противник поспешил и вы выйграли\n"
+      case SIG_YOU_BUSTLER => "Вы поспешили и проиграли\n"
+    }
+
     val postprocess = b.add(Flow[String].map(ByteString(_)))
 
-    val feedback = Flow[String].via(helloFlow).named("feedback")
-    val process = Flow[String].via(new CheckInputFlow(game)).named("processing")
+    val feedback = Flow[String].via(helloFlow).merge(sessionFeedback).named("feedback")
+    val process = Flow[String].map {a => a match {
+        case " " =>
+          system.log.debug("SPACE received")
+          Source.single(Gocha(contract)).to(contract.sessionIn).run()
+        case _ =>
+      }
+      ""
+    } named "processing"
 
     val bcast = b.add(Broadcast[String](2))
     val merge = b.add(Merge[String](2))
