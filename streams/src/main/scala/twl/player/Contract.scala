@@ -1,5 +1,6 @@
 package twl.player
 
+import akka.stream.SharedKillSwitch
 import akka.stream.scaladsl.Tcp.IncomingConnection
 import twl.game._
 import twl.session._
@@ -8,7 +9,8 @@ case class Contract(
                      connection: IncomingConnection,
                      gamePorts: Tuple2[GameSink, GameSource],
                      controlPorts: Tuple2[ControlSink, ControlSource],
-                     signalPorts: Tuple2[SignalSink, SignalSource]
+                     signalPorts: Tuple2[SignalSink, SignalSource],
+                     killSwitch: SharedKillSwitch
                    ) {
   def sessionIn = controlPorts._1
   def sessionOut = signalPorts._2

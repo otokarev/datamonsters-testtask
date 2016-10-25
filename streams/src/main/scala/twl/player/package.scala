@@ -12,21 +12,31 @@ package object player {
     import GraphDSL.Implicits._
     import session._
 
-    // TODO: here we should shutdown the session and unlink session members connections
-
     val preprocess = b.add(Flow[ByteString]
       .map(_.utf8String)
       .map { msg ⇒ system.log.debug(s"Server received: $msg"); msg }
       .merge(contract.gameSource))
 
 
-    val sessionFeedback = contract.sessionOut.map {
-      case SIG_PEER_GONE => "Ваш соперник покинул игру\n"
-      case SIG_YOU_WIN => "Вы нажали пробел первым и победили\n"
-      case SIG_YOU_LOOSE => "Вы не успели и проиграли\n"
-      case SIG_PEER_BUSTLER => "Ваш противник поспешил и вы выйграли\n"
-      case SIG_YOU_BUSTLER => "Вы поспешили и проиграли\n"
-    }
+    val sessionFeedback = contract.sessionOut.map {a =>
+
+      val result = a match {
+        case SIG_PEER_GONE =>
+          "Ваш соперник покинул игру\n"
+        case SIG_YOU_WIN =>
+          "Вы нажали пробел первым и победили\n"
+        case SIG_YOU_LOOSE =>
+          "Вы не успели и проиграли\n"
+        case SIG_PEER_BUSTLER =>
+          "Ваш противник поспешил и вы выйграли\n"
+        case SIG_YOU_BUSTLER =>
+          "Вы поспешили и проиграли\n"
+      }
+
+      contract.killSwitch.shutdown()
+      result
+
+    } map {"\n" + _}
 
     val postprocess = b.add(Flow[String].map(ByteString(_)))
 
@@ -34,7 +44,7 @@ package object player {
     val process = Flow[String].map {a => a match {
         case " " =>
           system.log.debug("SPACE received")
-          Source.single(Gocha(contract)).to(contract.sessionIn).run()
+          Source.single(Done(contract)).to(contract.sessionIn).run()
         case _ =>
       }
       ""

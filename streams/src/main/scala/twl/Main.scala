@@ -4,6 +4,7 @@ import akka.actor.ActorSystem
 import akka.stream.scaladsl.Tcp._
 import akka.stream.scaladsl._
 import akka.stream.{actor => _, _}
+import twl.session.Inactive
 import twl.utils._
 
 import scala.concurrent.Future
@@ -37,13 +38,21 @@ object Main extends App {
     .map(connection => {
       import player.{Contract, _}
 
+      val killSwitch = KillSwitches.shared("player-killswitch")
+
       val contract = Contract(
         connection = connection,
-        gamePorts = pubSub(),
-        controlPorts = pubSub(),
-        signalPorts = pubSub()
+        gamePorts = pubSub(killSwitch),
+        controlPorts = pubSub(killSwitch),
+        signalPorts = pubSub(killSwitch),
+        killSwitch = killSwitch
       )
-      connection.handleWith(play(contract))
+
+      // initialize player output stream with initial message
+      Source.single(Inactive()).to(contract.sessionIn).run()
+
+      connection.flow
+        .via(killSwitch.flow).joinMat(play(contract))(Keep.right).run()
 
       contract
     })
@@ -53,31 +62,43 @@ object Main extends App {
       import twl.game._
 
 
-      val game = gameSource()
+      val killSwitch = KillSwitches.shared("session-killswitch")
 
-      val (playSink, playSource) = pubSub[String]()
+      val game = gameSource().via(killSwitch.flow)
+
+      val (playSink, playSource) = pubSub[String](killSwitch)
 
       Source.single("Противник найден. Нажмите пробел, когда увидите цифру 3\n")
         .concat(game).named("play-source").to(playSink).run()
 
 
       contracts.foreach {contract =>
+
+        // Start game
         playSource.to(contract.gameSink).run()
-        Source.single("").merge(contract.playerOut).expand(Iterator.continually(_)).zip(playSource).map {a =>
-          system.log.debug("Player input: `{}`; Current value: `{}`", a._1, a._2)
-          a
-        } map {
-          case (Gocha(c), "3") =>
-            Source.single(SIG_YOU_WIN).to(c.playerIn).run()
-            contracts.filter(_ != c).foreach(c =>
-              Source.single(SIG_YOU_LOOSE).to(c.playerIn).run()
-            )
-          case (Gocha(c), _) =>
-            Source.single(SIG_YOU_BUSTLER).to(c.playerIn).run()
-            contracts.filter(_ != c).foreach(c =>
-              Source.single(SIG_PEER_BUSTLER).to(c.playerIn).run()
-            )
-        } to Sink.ignore
+
+        // Zip player's input with playSource
+        // TODO: implement here a simple stage that consume any player output and emit OK/NOTOK (recover logic in player/CheckInputFlow)
+        contract.playerOut.collect[ControlCommand]({case a@Done(_) => a}).via(contract.killSwitch.flow)
+          .zip(contract.gameSource.conflate[String] {case (acc, el) => el})
+          .map {a =>
+            system.log.debug("Player input: `{}`; Current value: `{}`", a._1.getClass.toString, a._2)
+            a
+          } map {
+            case (Done(c), "3") =>
+              Source.single(SIG_YOU_WIN).to(c.playerIn).run()
+              contracts.filter(_ != c).foreach { c =>
+                Source.single(SIG_YOU_LOOSE).to(c.playerIn).run()
+              }
+              killSwitch.shutdown()
+            case (Done(c), _) =>
+              Source.single(SIG_YOU_BUSTLER).to(c.playerIn).run()
+              contracts.filter(_ != c).foreach { c =>
+                Source.single(SIG_PEER_BUSTLER).to(c.playerIn).run()
+              }
+              killSwitch.shutdown()
+            case (Inactive(), _) => //Ignore messages with default initial message
+          } to Sink.ignore run
       }
 
     }).to(Sink.ignore).named("session-manager")

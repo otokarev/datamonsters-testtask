@@ -17,5 +17,6 @@ package object session {
   val SIG_PEER_GONE = 4
 
   sealed class ControlCommand
-  case class Gocha(c: Contract) extends ControlCommand
+  case class Done(c: Contract) extends ControlCommand
+  case class Inactive() extends ControlCommand
 }
