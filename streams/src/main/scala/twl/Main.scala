@@ -58,7 +58,7 @@ object Main extends App {
     })
     .grouped(2 /*New session starts when at least two players connect to the game*/)
     .map(contracts => {
-      import session._
+      import session.{CheckInputFlow, _}
       import twl.game._
 
 
@@ -77,27 +77,20 @@ object Main extends App {
         // Start game
         playSource.to(contract.gameSink).run()
 
-        // Zip player's input with playSource
-        // TODO: implement here a simple stage that consume any player output and emit OK/NOTOK (recover logic in player/CheckInputFlow)
-        contract.playerOut.collect[ControlCommand]({case a@Done(_) => a}).via(contract.killSwitch.flow)
-          .zip(contract.gameSource.conflate[String] {case (acc, el) => el})
-          .map {a =>
-            system.log.debug("Player input: `{}`; Current value: `{}`", a._1.getClass.toString, a._2)
-            a
-          } map {
-            case (Done(c), "3") =>
-              Source.single(SIG_YOU_WIN).to(c.playerIn).run()
-              contracts.filter(_ != c).foreach { c =>
+        contract.playerOut.via(new CheckInputFlow(contract.gameSource)).via(contract.killSwitch.flow)
+          .map {
+            case true =>
+              Source.single(SIG_YOU_WIN).to(contract.playerIn).run()
+              contracts.filter(_ != contract).foreach { c =>
                 Source.single(SIG_YOU_LOOSE).to(c.playerIn).run()
               }
               killSwitch.shutdown()
-            case (Done(c), _) =>
-              Source.single(SIG_YOU_BUSTLER).to(c.playerIn).run()
-              contracts.filter(_ != c).foreach { c =>
+            case false =>
+              Source.single(SIG_YOU_BUSTLER).to(contract.playerIn).run()
+              contracts.filter(_ != contract).foreach { c =>
                 Source.single(SIG_PEER_BUSTLER).to(c.playerIn).run()
               }
               killSwitch.shutdown()
-            case (Inactive(), _) => //Ignore messages with default initial message
           } to Sink.ignore run
       }
 
