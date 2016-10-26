@@ -2,11 +2,12 @@ package twl
 
 import akka.NotUsed
 import akka.stream.scaladsl.{Sink, Source}
-import twl.player.Contract
 
 package object session {
-  type ControlSource = Source[ControlCommand, NotUsed]
-  type ControlSink = Sink[ControlCommand, NotUsed]
+  type DataType = String
+  type SignalType = Int
+  type ControlSource = Source[ControlType, NotUsed]
+  type ControlSink = Sink[ControlType, NotUsed]
   type SignalSource = Source[Int, NotUsed]
   type SignalSink = Sink[Int, NotUsed]
 
@@ -16,7 +17,7 @@ package object session {
   val SIG_PEER_BUSTLER = 3
   val SIG_PEER_GONE = 4
 
-  sealed class ControlCommand
-  case class Done(c: Contract) extends ControlCommand
-  case class Inactive() extends ControlCommand
+  sealed class ControlType
+  case class Done() extends ControlType
+  case class Inactive() extends ControlType
 }

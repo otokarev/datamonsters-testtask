@@ -9,5 +9,5 @@ package object game {
   type GameSource = Source[String, NotUsed]
   type GameSink = Sink[String, NotUsed]
 
-  def gameSource()(implicit system: ActorSystem, materializer: Materializer) = Source.fromGraph(new GameEngineSourceGraph).named("game-engine")
+  def GameSource()(implicit system: ActorSystem, materializer: Materializer) = Source.fromGraph(new GameEngineSourceGraph).named("game-engine")
 }

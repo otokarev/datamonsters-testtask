@@ -4,8 +4,8 @@ import akka.actor.ActorSystem
 import akka.stream.scaladsl.Tcp._
 import akka.stream.scaladsl._
 import akka.stream.{actor => _, _}
-import twl.session.Inactive
-import twl.utils._
+import twl.player.Player
+import twl.session.Session
 
 import scala.concurrent.Future
 import scala.language.postfixOps
@@ -35,66 +35,19 @@ object Main extends App {
 
   def sessionManager(implicit system: ActorSystem, materializer: Materializer)
   = Flow[IncomingConnection]
-    .map(connection => {
-      import player.{Contract, _}
-
-      val killSwitch = KillSwitches.shared("player-killswitch")
-
-      val contract = Contract(
-        connection = connection,
-        gamePorts = pubSub(killSwitch),
-        controlPorts = pubSub(killSwitch),
-        signalPorts = pubSub(killSwitch),
-        killSwitch = killSwitch
-      )
-
-      // initialize player output stream with initial message
-      Source.single(Inactive()).to(contract.sessionIn).run()
-
-      connection.flow
-        .via(killSwitch.flow).joinMat(play(contract))(Keep.right).run()
-
-      contract
-    })
+    /**
+      * Instantiate a player with all in/out ports required to communicate with a session (that does not exist yet)
+      */
+    .map(Player(_))
+    /**
+      * There must be a logic to choose players for a game
+      * In our simplest case the game members are two ones taken in a raw (`group(2)`) in order of their connect attempt
+      */
     .grouped(2 /*New session starts when at least two players connect to the game*/)
-    .map(contracts => {
-      import session.{CheckInputFlow, _}
-      import twl.game._
-
-
-      val killSwitch = KillSwitches.shared("session-killswitch")
-
-      val game = gameSource().via(killSwitch.flow)
-
-      val (playSink, playSource) = pubSub[String](killSwitch)
-
-      Source.single("Противник найден. Нажмите пробел, когда увидите цифру 3\n")
-        .concat(game).named("play-source").to(playSink).run()
-
-
-      contracts.foreach {contract =>
-
-        // Start game
-        playSource.to(contract.gameSink).run()
-
-        contract.playerOut.via(new CheckInputFlow(contract.gameSource)).via(contract.killSwitch.flow)
-          .map {
-            case true =>
-              Source.single(SIG_YOU_WIN).to(contract.playerIn).run()
-              contracts.filter(_ != contract).foreach { c =>
-                Source.single(SIG_YOU_LOOSE).to(c.playerIn).run()
-              }
-              killSwitch.shutdown()
-            case false =>
-              Source.single(SIG_YOU_BUSTLER).to(contract.playerIn).run()
-              contracts.filter(_ != contract).foreach { c =>
-                Source.single(SIG_PEER_BUSTLER).to(c.playerIn).run()
-              }
-              killSwitch.shutdown()
-          } to Sink.ignore run
-      }
-
-    }).to(Sink.ignore).named("session-manager")
+    /**
+      * Run a session per each pair of players
+      */
+    .to(Sink.foreach[Seq[Player]](Session(_))).named("session-manager")
 
 }
 

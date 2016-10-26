@@ -6,8 +6,10 @@ import akka.stream._
 import akka.stream.scaladsl.Source
 import akka.stream.stage.{GraphStage, GraphStageLogic, InHandler, OutHandler}
 
-class CheckInputFlow(s: Source[String, NotUsed])(implicit system: ActorSystem, materializer: Materializer) extends GraphStage[FlowShape[ControlCommand, Boolean]] {
-  val in = Inlet[ControlCommand]("CheckInputFlow.in")
+class CheckInputFlow(s: Source[String, NotUsed])(implicit system: ActorSystem, materializer: Materializer)
+  extends GraphStage[FlowShape[ControlType, Boolean]] {
+
+  val in = Inlet[ControlType]("CheckInputFlow.in")
   val out = Outlet[Boolean]("CheckInputFlow.out")
 
   override val shape = FlowShape(in, out)
@@ -30,7 +32,7 @@ class CheckInputFlow(s: Source[String, NotUsed])(implicit system: ActorSystem, m
 
     setHandler(in, new InHandler {
       override def onPush() = grab(in) match {
-        case Done(_) ⇒
+        case Done() ⇒
           if (currentValue == "3")
             push(out, true)
           else {
