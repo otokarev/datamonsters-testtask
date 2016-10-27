@@ -1,34 +1,43 @@
 #Test task for Data Monsters
+## Description
+It is a test task (or a probation project) was performed as a part of application to a Scala Developer position of some company.
+
+The project split in to subproject:
+
+* **streams/** where all main use-cases implemented by use of true Akka Actors
+* **actors/** where all main use-cases implemented by use of Akka Streams
 
 ## Usage
-### Start game server
+### Pure actors
+#### Start game server
 ```
-# variant with pure Akka Actors
 sbt actors/run
-
-# variant with Akka Streams 
-sbt streams/run
 ```
-### Connect game server
+#### Connect game server
 First player
 ```
-# variant with pure Akka Actors
 telnet localhost 6600
+```
+and second one
+```
+telnet localhost 6600
+```
 
-# variant with Akka Streams 
+Type SPACE and ENTER when see "3"
+### Akka Streams
+#### Start game server
+```
+sbt streams/run
+```
+#### Connect game server
+First player
+```
 stty -icanon && netcat 127.0.0.1 6600
 ```
 and second one
 ```
-# variant with pure Akka Actors
-telnet localhost 6600
-
-# variant with Akka Streams 
 stty -icanon && netcat 127.0.0.1 6600
 ```
-
-Type SPACE and ENTER when see "3"
-
 
 ##Requirements
 Use Scala/Akka.
@@ -52,9 +61,7 @@ Use Scala/Akka.
 1.1. Both are disconnected from the game.
 
 ##Assumption
-1. Message from a player perspective is a number of symbols ended by newline character, so to send SPACE a player must type SPACE and ENTER from newline
+1. For **Pure Actors**: Message from a player perspective is a number of symbols ended by newline character, so to send SPACE a player must type SPACE and ENTER from newline
 1. The game ignores any strings except SPACE (" ")
+1. For **Akka Streams** chosen is `netcat` because it was simpler for me to turn off user input buffering between a terminal and this application.
 
-##TODO
-1. Actors have internal states that is not good. Fix it.
-1. Tests
