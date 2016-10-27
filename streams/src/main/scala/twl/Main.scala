@@ -27,9 +27,10 @@ object Main extends App {
 
     binding onComplete {
       case Success(b) ⇒
-        system.log.debug(s"Server started, listening on: ${b.localAddress}")
+        system.log.info(s"Server started, listening on: ${b.localAddress}")
       case Failure(e) ⇒
-        system.log.debug(s"Server could not be bound to $address:$port: ${e.getMessage}")
+        system.log.error(s"Server could not be bound to $address:$port: ${e.getMessage}")
+        system.terminate()
     }
   }
 
@@ -50,6 +51,3 @@ object Main extends App {
     .to(Sink.foreach[Seq[Player]](Session(_))).named("session-manager")
 
 }
-
-
-

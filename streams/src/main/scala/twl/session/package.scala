@@ -20,4 +20,5 @@ package object session {
   sealed class ControlType
   case class Done() extends ControlType
   case class Inactive() extends ControlType
+  case class Dead() extends ControlType
 }
